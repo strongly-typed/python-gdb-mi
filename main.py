@@ -281,11 +281,16 @@ class Session(object):
             self.exec_state = obj.what
         
     def _handle_result(self, token, obj):
+        handled = False
         if obj.what == "done" or obj.what == "running":
             self.commands[token]['state'] = obj.what
+            if self.commands[token]['handler']:
+                handled = self.commands[token]['handler'](token, obj)
+
             if 'bkpt' in obj.args:
                 self._update_breakpoint(obj.args['bkpt'])
-                return True
+                handled = True
+        return handled
 
     def _handle_notify(self, token, obj):
         if obj.what == "thread-group-added":
@@ -385,9 +390,9 @@ class Session(object):
                 return True
         return False
         
-def test():
+def test_lib(path):
     """
-    >>> test()
+    >>> test_lib("/usr/lib/libcairo.so.2.11000.2")
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -397,7 +402,82 @@ def test():
             '%(pathname)s:%(lineno)s '\
             '%(message)s')
 
-    p = Session("test/hello").start()
+    p = Session(path)
+
+    def dump(token, obj):
+        for d in obj.args['variables']:
+            if int(d['static']) != 1:
+                logging.warn([d])
+        return True
+
+    token = p.send("-symbol-list-variables", dump)
+    while not p.block(token): pass
+
+
+def test_cpp(path):
+    """
+    #>>> test_cpp("test/mangled")
+    """
+
+    logging.basicConfig(
+        level=logging.INFO,
+#        level=logging.DEBUG,
+        format='%(asctime)s '\
+            '%(levelname)s '\
+            '%(pathname)s:%(lineno)s '\
+            '%(message)s')
+
+    p = Session(path).start()
+
+    token = p.send("-enable-timings")
+    token = p.send("-list-features")
+    while not p.block(token): pass
+
+    token = p.send("-exec-run")
+    while not p.block(token): pass
+
+    token = p.send("-rubbish")
+    while not p.block(token): pass
+
+    token = p.send("-list-thread-groups")
+    while not p.block(token): pass
+
+    token = p.send("-symbol-list-lines hello.c")
+    token = p.send("-data-list-changed-registers")
+    token = p.send("-data-list-register-names")
+    token = p.send("-data-list-register-values x 0")
+    while not p.block(token): pass
+
+    token = p.send("-data-evaluate-expression main")
+    token = p.send("-data-read-memory main x 8 1 1")
+    while not p.block(token): pass
+
+    token = p.send("-stack-list-variables --all-values")
+    while not p.block(token): pass
+
+    token = p.send("-symbol-list-variables")
+    while not p.block(token): pass
+
+    token = p.send("-exec-continue")
+    while not p.block(token): pass
+
+    token = p.send("-exec-continue")
+    while not p.block(token): pass
+
+def test(path):
+    """
+    #>>> test("test/hello")
+    #>>> test("test/hello_nodebug")
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+#        level=logging.DEBUG,
+        format='%(asctime)s '\
+            '%(levelname)s '\
+            '%(pathname)s:%(lineno)s '\
+            '%(message)s')
+
+    p = Session(path).start()
 
 #    pid = os.getpid()
 #    (master, slave) = os.openpty()
@@ -434,6 +514,10 @@ def test():
     while not p.block(token): pass
 
     token = p.send("-stack-list-variables --all-values")
+    while not p.block(token): pass
+
+#    token = p.send("-symbol-list-variables")
+    token = p.send("-symbol-list-variables ^[^_].*")
     while not p.block(token): pass
 
 
