@@ -253,6 +253,9 @@ class Session(object):
         token = ""
         logging.debug(["RAW:", line])
 
+        if not line:
+            return
+
         if line.startswith('(gdb)'):
             # terminator
             yield (token, MiOutputTerminator())
@@ -392,7 +395,7 @@ class Session(object):
         
 def test_lib(path):
     """
-    >>> test_lib("/usr/lib/libcairo.so.2.11000.2")
+    #>>> test_lib("/usr/lib/libcairo.so.2.11000.2")
     """
     logging.basicConfig(
         level=logging.INFO,
@@ -405,18 +408,18 @@ def test_lib(path):
     p = Session(path)
 
     def dump(token, obj):
-        for d in obj.args['variables']:
-            if int(d['static']) != 1:
+        for d in obj.args['symbols']:
+            if (d['scope'] == 'static' and
+                not d['name'].startswith('_')):
                 logging.warn([d])
         return True
-
     token = p.send("-symbol-list-variables", dump)
     while not p.block(token): pass
 
 
 def test_cpp(path):
     """
-    #>>> test_cpp("test/mangled")
+    >>> test_cpp("test/mangled")
     """
 
     logging.basicConfig(
@@ -433,13 +436,15 @@ def test_cpp(path):
     token = p.send("-list-features")
     while not p.block(token): pass
 
+    pid = os.getpid()
+    (master, slave) = os.openpty()
+    slave_node = "/proc/%d/fd/%d" % (pid, slave)
+
+    token = p.send("-inferior-tty-set " + slave_node)
+    while not p.block(token): pass
+
+
     token = p.send("-exec-run")
-    while not p.block(token): pass
-
-    token = p.send("-rubbish")
-    while not p.block(token): pass
-
-    token = p.send("-list-thread-groups")
     while not p.block(token): pass
 
     token = p.send("-symbol-list-lines hello.c")
@@ -455,7 +460,12 @@ def test_cpp(path):
     token = p.send("-stack-list-variables --all-values")
     while not p.block(token): pass
 
-    token = p.send("-symbol-list-variables")
+    def dump(token, obj):
+        for d in obj.args['symbols']:
+            if d.get('file', '').endswith('cpp'):
+                logging.warn([d])
+        return True
+    token = p.send("-symbol-list-variables", dump)
     while not p.block(token): pass
 
     token = p.send("-exec-continue")
@@ -466,7 +476,8 @@ def test_cpp(path):
 
 def test(path):
     """
-    #>>> test("test/hello")
+    >>> test("test/hello")
+
     #>>> test("test/hello_nodebug")
     """
     logging.basicConfig(
@@ -516,8 +527,16 @@ def test(path):
     token = p.send("-stack-list-variables --all-values")
     while not p.block(token): pass
 
+
+    def dump(token, obj):
+        for d in obj.args['symbols']:
+            if (d['name'].startswith('test_')):
+                logging.warn([d])
+        logging.warn([obj.args['time']])
+        return True
+
+    token = p.send("-symbol-list-variables", dump)
 #    token = p.send("-symbol-list-variables")
-    token = p.send("-symbol-list-variables ^[^_].*")
     while not p.block(token): pass
 
 
