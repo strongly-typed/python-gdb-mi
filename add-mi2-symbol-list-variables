@@ -1,5 +1,10 @@
-Description: add '-symbol-list-variables' command to MI2 interface 
- allow to get list of global/static variables through GDB/MI.
+Description: <short summary of the patch>
+ TODO: Put a short summary on the line above and replace this paragraph
+ with a longer explanation of this change. Complete the meta-information
+ with other relevant fields (see below for details). To make it easier, the
+ information below has been extracted from the changelog. Adjust it or drop
+ it.
+ .
  gdb (7.4-1~cvs20111117.2.1) experimental; urgency=low
  .
    * add MI2 -symbol-list-variables
@@ -40,17 +45,18 @@ Last-Update: <YYYY-MM-DD>
    { "target-disconnect", { "disconnect", 0 }, 0 },
 --- gdb-7.4.orig/gdb/mi/mi-symbol-cmds.c
 +++ gdb-7.4/gdb/mi/mi-symbol-cmds.c
-@@ -21,6 +21,9 @@
+@@ -21,6 +21,10 @@
  #include "mi-cmds.h"
  #include "symtab.h"
  #include "objfiles.h"
 +#include "language.h"
 +#include "block.h"
++#include "value.h"
 +#include "bfd.h"
  #include "ui-out.h"
  
  /* SYMBOL-LIST-LINES:
-@@ -66,3 +69,99 @@ mi_cmd_symbol_list_lines (char *command,
+@@ -66,3 +70,141 @@ mi_cmd_symbol_list_lines (char *command,
  
    do_cleanups (cleanup_stack);
  }
@@ -65,7 +71,6 @@ Last-Update: <YYYY-MM-DD>
 +  char *regexp;
 +  struct symbol_search *symbols;
 +  struct symbol_search *p;
-+
 +  struct cleanup *cleanup_symbols, *cleanup_stack;
 +  struct ui_out *uiout = current_uiout;
 +
@@ -86,65 +91,108 @@ Last-Update: <YYYY-MM-DD>
 +
 +  for (p = symbols; p; p = p->next)
 +  {
++
 +    if (p->msymbol){
-+      /* skip non-global static variables */
-+    } else if ( (p->symtab) && (p->symbol) ){
 +      struct cleanup *cleanup_tuple;
++      struct minimal_symbol *m = p->msymbol;
++      struct objfile *objfile = msymbol_objfile (m);
 +      cleanup_tuple = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
 +
-+      /* distinguish static/global */
-+      ui_out_field_string (uiout, "scope",
-+                           (p->block == STATIC_BLOCK) ? "static":"global");
++      ui_out_field_string (uiout, "loc", "msymbol");
++
++      if (m->filename)
++      {
++        ui_out_field_string (uiout, "file", m->filename);
++      }
++
++      if (objfile)
++      {
++        ui_out_field_core_addr (uiout, "address",
++                                get_objfile_arch (objfile),
++                                SYMBOL_VALUE_ADDRESS (m));
++      }
++      ui_out_field_string (uiout, "name", SYMBOL_SEARCH_NAME (m));
++
++      /* bfd section name */
++      if (SYMBOL_OBJ_SECTION(m) &&
++          SYMBOL_OBJ_SECTION(m)->the_bfd_section &&
++          SYMBOL_OBJ_SECTION(m)->the_bfd_section->name)
++      {
++          ui_out_field_string (uiout, "section",
++                               SYMBOL_OBJ_SECTION(m)->the_bfd_section->name);
++      }
++
++      do_cleanups (cleanup_tuple);
++
++    } else if (p->symbol){
++      struct cleanup *cleanup_tuple;
++      char *type_str;
++      struct symbol *s = p->symbol;
++      cleanup_tuple = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
++
++      switch(p->block)
++      {
++      case STATIC_BLOCK:
++        ui_out_field_string (uiout, "block", "static");
++        break;
++      case GLOBAL_BLOCK:
++        ui_out_field_string (uiout, "block", "global");
++        break;
++      default:
++        ui_out_field_int (uiout, "block", p->block);
++        break;
++      }
 +
 +      ui_out_field_string (uiout, "language",
-+                           language_str(SYMBOL_LANGUAGE(p->symbol)));
++                           language_str(SYMBOL_LANGUAGE(s)));
 +
-+      switch (SYMBOL_CLASS (p->symbol))
++      /* dump namespace for C++?*/
++
++      switch (SYMBOL_CLASS (s))
 +      {
 +      case LOC_CONST:
 +        ui_out_field_string (uiout, "loc", "const");
-+        ui_out_field_int (uiout, "const_value", SYMBOL_VALUE (p->symbol));
++        ui_out_field_int (uiout, "value", SYMBOL_VALUE (s));
 +        break;
 +      case LOC_STATIC:
 +        ui_out_field_string (uiout, "loc", "static");
-+        ui_out_field_core_addr (uiout, "address",
-+                                get_objfile_arch (p->symtab->objfile),
-+                                SYMBOL_VALUE_ADDRESS (p->symbol));
-+        break;
-+      case LOC_BLOCK:
-+        ui_out_field_core_addr (uiout, "address",
-+                                get_objfile_arch (p->symtab->objfile),
-+                                SYMBOL_BLOCK_VALUE (p->symbol)->startaddr);
-+        /* dump namespace for C++?*/
-+        break;
-+      case LOC_CONST_BYTES:
-+        /* dump contents? (which might be too huge) */
++        if(p->symtab && p->symtab->objfile)
++          ui_out_field_core_addr (uiout, "address",
++                                  get_objfile_arch (p->symtab->objfile),
++                                  SYMBOL_VALUE_ADDRESS (s));
 +        break;
 +      default:
++        ui_out_field_int (uiout, "loc", SYMBOL_CLASS (s));
 +        break;
 +      }
 +
-+      if (p->symtab->filename)
++      if (p->symtab && p->symtab->filename)
 +      {
 +        ui_out_field_string (uiout, "file", p->symtab->filename);
-+        ui_out_field_int (uiout, "line", SYMBOL_LINE (p->symbol));
++        ui_out_field_int (uiout, "line", SYMBOL_LINE (s));
 +      }
 +
 +      /* bfd section name */
-+      if (SYMBOL_OBJ_SECTION(p->symbol) &&
-+          SYMBOL_OBJ_SECTION(p->symbol)->the_bfd_section &&
-+          SYMBOL_OBJ_SECTION(p->symbol)->the_bfd_section->name)
++      if (SYMBOL_OBJ_SECTION(s) &&
++          SYMBOL_OBJ_SECTION(s)->the_bfd_section &&
++          SYMBOL_OBJ_SECTION(s)->the_bfd_section->name)
 +      {
 +          ui_out_field_string (uiout, "section",
-+                               SYMBOL_OBJ_SECTION(p->symbol)->the_bfd_section->name);
++                               SYMBOL_OBJ_SECTION(s)->the_bfd_section->name);
 +      }
 +
-+      ui_out_field_string (uiout, "name", SYMBOL_SEARCH_NAME (p->symbol));
++      ui_out_field_string (uiout, "name", SYMBOL_SEARCH_NAME (s));
 +
-+      /* to-do: add type info based on SYMBOL_TYPE (p->symbol)? */
++      type_str = type_to_string (SYMBOL_TYPE (s));
++      if (type_str)
++      {
++          ui_out_field_string (uiout, "type", type_str);
++          xfree(type_str);
++      }
 +
 +      do_cleanups (cleanup_tuple);
 +    }
++
 +  }
 +  do_cleanups (cleanup_stack);
 +  do_cleanups (cleanup_symbols);
