@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdint.h>
 
-static uint32_t i1 = 0x1234;
-static uint32_t i2 = 0x12345678;
+static uint32_t test_i1 = 0x1234;
+static uint32_t test_i2 = 0x12345678;
 
 void hello(int test_int_in_arg){
     int test_int_in_hello = 11;
@@ -10,10 +10,13 @@ void hello(int test_int_in_arg){
     {
         int test_int_in_block = 13;
         static int test_static_int_in_block = 14;
-        printf("hello %08x %08x\n", i1, i2);
+        printf("hello %08x %08x\n", test_i1, test_i2);
     }
 }
 
+
+__attribute__((__section__("custom")))
+static int test_custom_section = 1;
 
 int test_global_int = 0x0102;
 const int test_const_global_int = 0x0102;

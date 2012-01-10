@@ -1,7 +1,7 @@
 CFLAGS = -Wall -gdwarf-4
 CXXFLAGS = -Wall -gdwarf-4
 
-all: hello hello_nodebug mangled
+all: hello hello_nodebug mangled hw
 
 hello: hello.c
 

@@ -419,7 +419,7 @@ def test_lib(path):
 
 def test_cpp(path):
     """
-    >>> test_cpp("test/mangled")
+    #>>> test_cpp("test/mangled")
     """
 
     logging.basicConfig(
@@ -443,6 +443,13 @@ def test_cpp(path):
     token = p.send("-inferior-tty-set " + slave_node)
     while not p.block(token): pass
 
+    def dump(token, obj):
+        for d in obj.args['symbols']:
+            if d.get('file', '').endswith('cpp'):
+                logging.warn([d])
+        return True
+    token = p.send("-symbol-list-variables", dump)
+    while not p.block(token): pass
 
     token = p.send("-exec-run")
     while not p.block(token): pass
@@ -460,13 +467,6 @@ def test_cpp(path):
     token = p.send("-stack-list-variables --all-values")
     while not p.block(token): pass
 
-    def dump(token, obj):
-        for d in obj.args['symbols']:
-            if d.get('file', '').endswith('cpp'):
-                logging.warn([d])
-        return True
-    token = p.send("-symbol-list-variables", dump)
-    while not p.block(token): pass
 
     token = p.send("-exec-continue")
     while not p.block(token): pass
@@ -476,7 +476,7 @@ def test_cpp(path):
 
 def test(path):
     """
-    >>> test("test/hello")
+    #>>> test("test/hello")
 
     #>>> test("test/hello_nodebug")
     """
@@ -520,8 +520,8 @@ def test(path):
     token = p.send("-data-read-memory main x 8 1 1")
     while not p.block(token): pass
 
-    token = p.send("-data-read-memory-bytes &i1 4")
-    token = p.send('-data-write-memory-bytes &i1 "09080706"')
+    token = p.send("-data-read-memory-bytes &test_i1 4")
+    token = p.send('-data-write-memory-bytes &test_i1 "09080706"')
     while not p.block(token): pass
 
     token = p.send("-stack-list-variables --all-values")
@@ -530,8 +530,8 @@ def test(path):
 
     def dump(token, obj):
         for d in obj.args['symbols']:
-            if (d['name'].startswith('test_')):
-                logging.warn([d])
+            if (1 or d['name'].startswith('test_')):
+                logging.warn(["    ", d])
         logging.warn([obj.args['time']])
         return True
 
@@ -540,7 +540,7 @@ def test(path):
     while not p.block(token): pass
 
 
-    token = p.send('-var-create var2 * i2')
+    token = p.send('-var-create var2 * test_i2')
     token = p.send("-var-assign var2 3")
     token = p.send("-var-update *")
     while not p.block(token): pass
@@ -549,6 +549,48 @@ def test(path):
     while not p.block(token): pass
 
     token = p.send("-exec-continue")
+    while not p.block(token): pass
+
+def test_vars(path):
+    """
+    #>>> test_vars("test/hello")
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+#        level=logging.DEBUG,
+        format='%(asctime)s '\
+            '%(levelname)s '\
+            '%(pathname)s:%(lineno)s '\
+            '%(message)s')
+
+    p = Session(path).start()
+
+    def dump(token, obj):
+        for d in obj.args['symbols']:
+            logging.warn([d])
+        return True
+    token = p.send("-symbol-list-variables", dump)
+#    token = p.send("-symbol-list-variables")
+    while not p.block(token): pass
+
+def test_simple(path):
+    """
+    >>> test_simple("test/hw")
+    """
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s '\
+            '%(levelname)s '\
+            '%(pathname)s:%(lineno)s '\
+            '%(message)s')
+
+    p = Session(path).start()
+
+    def dump(token, obj):
+        for d in obj.args['symbols']:
+            logging.warn([d])
+        return True
+    token = p.send("-symbol-list-variables", dump)
     while not p.block(token): pass
 
 if __name__ == "__main__":
