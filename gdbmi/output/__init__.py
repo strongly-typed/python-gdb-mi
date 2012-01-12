@@ -106,6 +106,11 @@ class _Output(object):
             return self.parse_list(src)
         if src.startswith('"'):
             return self.parse_const(src)
+        # for legacy format [k=v,k=v,...]
+        (k, sep, left) = src.partition('=')
+        if sep:
+            v, left = self.parse_value(left)
+            return ({k:v}, left)
         raise ValueError(src)
 
     @classmethod

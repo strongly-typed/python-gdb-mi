@@ -45,13 +45,19 @@ class Session(object):
         self.send("-break-insert main")
         return self
 
+    def insert_break(self, location):
+        return self.send("-break-insert " + location)
+
+    def exec_run(self):
+        return self.send("-exec-run")
+
     def send(self, cmd, handler = None):
         self.token += 1
         token = "%04d" % self.token
         p = self.process
         p.stdin.write(token + cmd + "\n")
         p.stdin.flush()
-        logging.warn(["SENT:", cmd, token])
+        logging.warn(["SENT[" + token +"]:", cmd])
         self.commands[token] = {'cmd': cmd,
                                 'handler': handler,
                                 }
@@ -186,7 +192,7 @@ class Session(object):
             }.get(obj.TOKEN, None)
 
         if not (handler and handler(token, obj)):
-            logging.warn([token, obj])
+            logging.warn(["IGN:", token, obj])
 
     def read(self, blocking = 0):
         for src in self._read(blocking):            
