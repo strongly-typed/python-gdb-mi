@@ -34,9 +34,18 @@ class Session(object):
 
         self.commands = {}
         self._callbacks = {}
+        self._hijacked = {}
+
         self.exec_state = None
         self.token = 0
         logging.warn(['session', debugee])
+
+    def hijack_function(self, name, func):
+        def thunk(token, obj):
+            func()
+            
+
+        self.insert_break(name, )
 
     def start(self, token = ""):
         if self.is_attached:
@@ -110,6 +119,7 @@ class Session(object):
         handled = False
         if obj.what == "done" or obj.what == "running":
             self.commands[token]['state'] = obj.what
+            # lookup handler for the token
             if self.commands[token]['handler']:
                 handled = self.commands[token]['handler'](token, obj)
 
@@ -182,6 +192,9 @@ class Session(object):
         else:
             self.breakpoints[number] = dict(info)
 
+        logging.info(['updated BREAKPOINT', self.breakpoints[number]])
+        self._callback('bkpt')
+
     def _handle(self, token, obj):
         handler = {
             gdbmi.output.NotifyAsync.TOKEN   : self._handle_notify,
@@ -210,7 +223,7 @@ class Session(object):
     def is_running(self):
         return (self.process.poll() is None)
 
-    def block(self, stop_token = None):
+    def wait_for(self, stop_token = None):
         for token, obj in self.read(1):
             if token == stop_token:
                 return True

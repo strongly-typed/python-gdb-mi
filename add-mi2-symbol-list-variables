@@ -25,176 +25,439 @@ Last-Update: <YYYY-MM-DD>
 
 --- gdb-7.4.orig/gdb/mi/mi-cmds.h
 +++ gdb-7.4/gdb/mi/mi-cmds.h
-@@ -85,6 +85,7 @@ extern mi_cmd_argv_ftype mi_cmd_stack_li
+@@ -85,6 +85,10 @@ extern mi_cmd_argv_ftype mi_cmd_stack_li
  extern mi_cmd_argv_ftype mi_cmd_stack_list_variables;
  extern mi_cmd_argv_ftype mi_cmd_stack_select_frame;
  extern mi_cmd_argv_ftype mi_cmd_symbol_list_lines;
++extern mi_cmd_argv_ftype mi_cmd_symbol_list_functions;
++extern mi_cmd_argv_ftype mi_cmd_symbol_list_types;
 +extern mi_cmd_argv_ftype mi_cmd_symbol_list_variables;
++extern mi_cmd_argv_ftype mi_cmd_symbol_info_type;
  extern mi_cmd_argv_ftype mi_cmd_target_detach;
  extern mi_cmd_argv_ftype mi_cmd_target_file_get;
  extern mi_cmd_argv_ftype mi_cmd_target_file_put;
 --- gdb-7.4.orig/gdb/mi/mi-cmds.c
 +++ gdb-7.4/gdb/mi/mi-cmds.c
-@@ -103,6 +103,7 @@ struct mi_cmd mi_cmds[] =
+@@ -93,7 +93,7 @@ struct mi_cmd mi_cmds[] =
+   { "interpreter-exec", { NULL, 0 }, mi_cmd_interpreter_exec},
+   { "list-features", { NULL, 0 }, mi_cmd_list_features},
+   { "list-target-features", { NULL, 0 }, mi_cmd_list_target_features},
+-  { "list-thread-groups", { NULL, 0 }, mi_cmd_list_thread_groups },  
++  { "list-thread-groups", { NULL, 0 }, mi_cmd_list_thread_groups },
+   { "remove-inferior", { NULL, 0 }, mi_cmd_remove_inferior },
+   { "stack-info-depth", { NULL, 0 }, mi_cmd_stack_info_depth},
+   { "stack-info-frame", { NULL, 0 }, mi_cmd_stack_info_frame},
+@@ -103,6 +103,10 @@ struct mi_cmd mi_cmds[] =
    { "stack-list-variables", { NULL, 0 }, mi_cmd_stack_list_variables},
    { "stack-select-frame", { NULL, 0 }, mi_cmd_stack_select_frame},
    { "symbol-list-lines", { NULL, 0 }, mi_cmd_symbol_list_lines},
++  { "symbol-list-functions", { NULL, 0 }, mi_cmd_symbol_list_functions},
++  { "symbol-list-types", { NULL, 0 }, mi_cmd_symbol_list_types},
 +  { "symbol-list-variables", { NULL, 0 }, mi_cmd_symbol_list_variables},
++  { "symbol-info-type", { NULL, 0 }, mi_cmd_symbol_info_type},
    { "target-attach", { "attach", 1 }, NULL },
    { "target-detach", { NULL, 0 }, mi_cmd_target_detach },
    { "target-disconnect", { "disconnect", 0 }, 0 },
 --- gdb-7.4.orig/gdb/mi/mi-symbol-cmds.c
 +++ gdb-7.4/gdb/mi/mi-symbol-cmds.c
-@@ -21,6 +21,10 @@
+@@ -19,8 +19,14 @@
+ 
+ #include "defs.h"
  #include "mi-cmds.h"
++#include "mi-getopt.h"
  #include "symtab.h"
  #include "objfiles.h"
 +#include "language.h"
 +#include "block.h"
 +#include "value.h"
++#include "expression.h"
 +#include "bfd.h"
  #include "ui-out.h"
  
  /* SYMBOL-LIST-LINES:
-@@ -66,3 +70,141 @@ mi_cmd_symbol_list_lines (char *command,
+@@ -66,3 +72,385 @@ mi_cmd_symbol_list_lines (char *command,
  
    do_cleanups (cleanup_stack);
  }
 +
++
++static void
++print_bfd_section (struct ui_out *uiout, struct bfd_section *bfd_section)
++{
++  if (bfd_section && bfd_section->name)
++    ui_out_field_string (uiout, "section", bfd_section->name);
++}
++
++static void
++print_block (struct ui_out *uiout, const struct block *block)
++{
++  if (!block)
++    return;
++
++  if (block == block_static_block (block))
++    ui_out_field_string (uiout, "block", "static");
++  else if (block == block_global_block (block))
++    ui_out_field_string (uiout, "block", "global");
++  else
++    ui_out_field_string (uiout, "scope", block_scope(block));
++}
++
++/* print a mininal-symbol  to uiout as a tuple */
++static void
++print_msymbol (struct ui_out *uiout,
++               struct minimal_symbol *msym)
++{
++  struct cleanup *cleanup;
++  struct objfile *objfile = msymbol_objfile (msym);
++
++  cleanup = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
++
++  if (msym->filename)
++      ui_out_field_string (uiout, "file", msym->filename);
++
++  if (objfile)
++    ui_out_field_core_addr (uiout, "address",
++                            get_objfile_arch (objfile),
++                            SYMBOL_VALUE_ADDRESS (msym));
++
++  if (SYMBOL_OBJ_SECTION (msym))
++    print_bfd_section (uiout, SYMBOL_OBJ_SECTION (msym)->the_bfd_section);
++
++  ui_out_field_string (uiout, "name", SYMBOL_SEARCH_NAME (msym));
++
++  do_cleanups (cleanup);
++}
++
++/* print a symbol to uiout as a tuple */
++static void
++print_symbol (struct ui_out *uiout,
++              struct symbol *sym, const struct block *block)
++{
++  struct cleanup *cleanup;
++  char *type_str;
++  struct symtab *symtab = SYMBOL_SYMTAB (sym);
++
++  cleanup = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
++
++  print_block(uiout, block);
++  ui_out_field_string (uiout, "language",
++                       language_str(SYMBOL_LANGUAGE(sym)));
++
++  switch (SYMBOL_CLASS (sym))
++    { /* address class */
++    case LOC_CONST:
++      ui_out_field_string (uiout, "aclass", "const");
++      ui_out_field_int (uiout, "value", SYMBOL_VALUE (sym));
++      break;
++    case LOC_STATIC:
++      ui_out_field_string (uiout, "aclass", "static");
++      if (symtab && symtab->objfile)
++        ui_out_field_core_addr (uiout, "address",
++                                get_objfile_arch (symtab->objfile),
++                                SYMBOL_VALUE_ADDRESS (sym));
++      break;
++    default:
++      ui_out_field_int (uiout, "aclass", SYMBOL_CLASS (sym));
++      break;
++    }
++
++  if (symtab && symtab->filename)
++    {
++      ui_out_field_string (uiout, "file", symtab->filename);
++      ui_out_field_int (uiout, "line", SYMBOL_LINE (sym));
++    }
++
++  if (SYMBOL_OBJ_SECTION(sym))
++    print_bfd_section (uiout, SYMBOL_OBJ_SECTION (sym)->the_bfd_section);
++
++  ui_out_field_string (uiout, "name", SYMBOL_SEARCH_NAME (sym));
++
++  type_str = type_to_string (SYMBOL_TYPE (sym));
++  if (type_str)
++    {
++      ui_out_field_string (uiout, "type", type_str);
++      xfree(type_str);
++    }
++
++  do_cleanups (cleanup);
++}
++
++
 +/* SYMBOL-LIST-VARIABLES:
 +
 +   Print the list of global and static variables. */
++static void
++list_symbols (struct ui_out *uiout,
++              char *regexp, enum search_domain search_domain)
++{
++  struct symbol_search *symbols;
++  struct cleanup *cleanup_ui_list;
++
++  cleanup_ui_list = make_cleanup_ui_out_list_begin_end (uiout, "symbols");
++  search_symbols (regexp, search_domain, 0, NULL, &symbols);
++  if (symbols)
++    {
++      struct symbol_search *p;
++      struct cleanup *cleanup_symbols;
++
++      cleanup_symbols = make_cleanup_free_search_symbols (symbols);
++      for (p = symbols; p; p = p->next)
++        {
++          if (p->msymbol)
++            {
++              print_msymbol (uiout, p->msymbol);
++            }
++          else if (p->symtab && p->symbol)
++            {
++              struct blockvector *bv = BLOCKVECTOR (p->symtab);
++
++              print_symbol (uiout, p->symbol,
++                            (bv) ? BLOCKVECTOR_BLOCK (bv, p->block) : NULL);
++            }
++        }
++      do_cleanups (cleanup_symbols);
++    }
++  do_cleanups (cleanup_ui_list);
++}
++
 +
 +void
 +mi_cmd_symbol_list_variables (char *command, char **argv, int argc)
 +{
++  static const struct mi_opt opts[] =
++  {
++    { 0, 0, 0 }
++  };
++  static const char prefix[] = "-symbol-list-variables";
++  char *optarg;
++  int optind = 0;
++
 +  char *regexp;
-+  struct symbol_search *symbols;
-+  struct symbol_search *p;
-+  struct cleanup *cleanup_symbols, *cleanup_stack;
 +  struct ui_out *uiout = current_uiout;
 +
-+  if (argc > 1)
-+    error (_("-symbol-list-variables: Usage: REGEXP"));
-+  else if (argc > 0){
-+    regexp = argv[0];
-+    ui_out_field_string (uiout, "regexp", regexp);
-+  } else {
++  if (mi_getopt (prefix, argc, argv, opts, &optind, &optarg) != -1)
++    error (_("-symbol-list-variables: Usage: PATTERN"));
++
++  if (optind == (argc - 1))
++    regexp = argv[optind];
++  else
 +    regexp = NULL;
-+  }
 +
-+  search_symbols (regexp, VARIABLES_DOMAIN, 0,
-+                  (char **) NULL, &symbols);
 +  ui_out_field_string (uiout, "domain", "variables");
-+  cleanup_symbols = make_cleanup_free_search_symbols (symbols);
-+  cleanup_stack = make_cleanup_ui_out_list_begin_end (uiout, "symbols");
 +
-+  for (p = symbols; p; p = p->next)
-+  {
-+
-+    if (p->msymbol){
-+      struct cleanup *cleanup_tuple;
-+      struct minimal_symbol *m = p->msymbol;
-+      struct objfile *objfile = msymbol_objfile (m);
-+      cleanup_tuple = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
-+
-+      ui_out_field_string (uiout, "loc", "msymbol");
-+
-+      if (m->filename)
-+      {
-+        ui_out_field_string (uiout, "file", m->filename);
-+      }
-+
-+      if (objfile)
-+      {
-+        ui_out_field_core_addr (uiout, "address",
-+                                get_objfile_arch (objfile),
-+                                SYMBOL_VALUE_ADDRESS (m));
-+      }
-+      ui_out_field_string (uiout, "name", SYMBOL_SEARCH_NAME (m));
-+
-+      /* bfd section name */
-+      if (SYMBOL_OBJ_SECTION(m) &&
-+          SYMBOL_OBJ_SECTION(m)->the_bfd_section &&
-+          SYMBOL_OBJ_SECTION(m)->the_bfd_section->name)
-+      {
-+          ui_out_field_string (uiout, "section",
-+                               SYMBOL_OBJ_SECTION(m)->the_bfd_section->name);
-+      }
-+
-+      do_cleanups (cleanup_tuple);
-+
-+    } else if (p->symbol){
-+      struct cleanup *cleanup_tuple;
-+      char *type_str;
-+      struct symbol *s = p->symbol;
-+      cleanup_tuple = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
-+
-+      switch(p->block)
-+      {
-+      case STATIC_BLOCK:
-+        ui_out_field_string (uiout, "block", "static");
-+        break;
-+      case GLOBAL_BLOCK:
-+        ui_out_field_string (uiout, "block", "global");
-+        break;
-+      default:
-+        ui_out_field_int (uiout, "block", p->block);
-+        break;
-+      }
-+
-+      ui_out_field_string (uiout, "language",
-+                           language_str(SYMBOL_LANGUAGE(s)));
-+
-+      /* dump namespace for C++?*/
-+
-+      switch (SYMBOL_CLASS (s))
-+      {
-+      case LOC_CONST:
-+        ui_out_field_string (uiout, "loc", "const");
-+        ui_out_field_int (uiout, "value", SYMBOL_VALUE (s));
-+        break;
-+      case LOC_STATIC:
-+        ui_out_field_string (uiout, "loc", "static");
-+        if(p->symtab && p->symtab->objfile)
-+          ui_out_field_core_addr (uiout, "address",
-+                                  get_objfile_arch (p->symtab->objfile),
-+                                  SYMBOL_VALUE_ADDRESS (s));
-+        break;
-+      default:
-+        ui_out_field_int (uiout, "loc", SYMBOL_CLASS (s));
-+        break;
-+      }
-+
-+      if (p->symtab && p->symtab->filename)
-+      {
-+        ui_out_field_string (uiout, "file", p->symtab->filename);
-+        ui_out_field_int (uiout, "line", SYMBOL_LINE (s));
-+      }
-+
-+      /* bfd section name */
-+      if (SYMBOL_OBJ_SECTION(s) &&
-+          SYMBOL_OBJ_SECTION(s)->the_bfd_section &&
-+          SYMBOL_OBJ_SECTION(s)->the_bfd_section->name)
-+      {
-+          ui_out_field_string (uiout, "section",
-+                               SYMBOL_OBJ_SECTION(s)->the_bfd_section->name);
-+      }
-+
-+      ui_out_field_string (uiout, "name", SYMBOL_SEARCH_NAME (s));
-+
-+      type_str = type_to_string (SYMBOL_TYPE (s));
-+      if (type_str)
-+      {
-+          ui_out_field_string (uiout, "type", type_str);
-+          xfree(type_str);
-+      }
-+
-+      do_cleanups (cleanup_tuple);
-+    }
-+
-+  }
-+  do_cleanups (cleanup_stack);
-+  do_cleanups (cleanup_symbols);
++  list_symbols (uiout, regexp, VARIABLES_DOMAIN);
 +}
 +
++void
++mi_cmd_symbol_list_functions (char *command, char **argv, int argc)
++{
++  static const struct mi_opt opts[] =
++  {
++    { 0, 0, 0 }
++  };
++  static const char prefix[] = "-symbol-list-functions";
++  char *optarg;
++  int optind = 0;
++
++  char *regexp;
++  struct ui_out *uiout = current_uiout;
++
++  if (mi_getopt (prefix, argc, argv, opts, &optind, &optarg) != -1)
++    error (_("-symbol-list-functions: Usage: PATTERN"));
++
++  if (optind == (argc - 1))
++    regexp = argv[optind];
++  else
++    regexp = NULL;
++
++  ui_out_field_string (uiout, "domain", "functions");
++
++  list_symbols (uiout, regexp, FUNCTIONS_DOMAIN);
++}
++
++void
++mi_cmd_symbol_list_types (char *command, char **argv, int argc)
++{
++  static const struct mi_opt opts[] =
++  {
++    { 0, 0, 0 }
++  };
++  static const char prefix[] = "-symbol-list-types";
++  char *optarg;
++  int optind = 0;
++
++  char *regexp;
++  struct ui_out *uiout = current_uiout;
++
++  if (mi_getopt (prefix, argc, argv, opts, &optind, &optarg) != -1)
++    error (_("-symbol-list-types: Usage: PATTERN"));
++
++  if (optind == (argc - 1))
++    regexp = argv[optind];
++  else
++    regexp = NULL;
++
++  ui_out_field_string (uiout, "domain", "types");
++
++  list_symbols (uiout, regexp, TYPES_DOMAIN);
++}
++
++void print_type(struct ui_out *uiout, struct type *type)
++{
++  const char *code_name;
++
++  if (TYPE_NAME(type))
++    {
++      ui_out_field_string(uiout, "name", TYPE_NAME(type));
++    }
++  if (TYPE_TAG_NAME(type))
++    {
++      ui_out_field_string(uiout, "tag", TYPE_TAG_NAME(type));
++    }
++
++  ui_out_field_int(uiout, "length", TYPE_LENGTH (type));
++
++  switch (TYPE_CODE (type))
++    {
++    case TYPE_CODE_UNDEF:
++      code_name = "UNDEF"; break;
++    case TYPE_CODE_PTR:
++      code_name = "PTR"; break;
++    case TYPE_CODE_ARRAY:
++      code_name = "ARRAY"; break;
++    case TYPE_CODE_STRUCT:
++      code_name = "STRUCT"; break;
++    case TYPE_CODE_UNION:
++      code_name = "UNION"; break;
++    case TYPE_CODE_ENUM:
++      code_name = "ENUM"; break;
++    case TYPE_CODE_FLAGS:
++      code_name = "FLAGS"; break;
++    case TYPE_CODE_FUNC:
++      code_name = "FUNC"; break;
++    case TYPE_CODE_INT:
++      code_name = "INT"; break;
++    case TYPE_CODE_FLT:
++      code_name = "FLT"; break;
++    case TYPE_CODE_VOID:
++      code_name = "VOID"; break;
++    case TYPE_CODE_SET:
++      code_name = "SET"; break;
++    case TYPE_CODE_RANGE:
++      code_name = "RANGE"; break;
++    case TYPE_CODE_STRING:
++      code_name = "STRING"; break;
++    case TYPE_CODE_BITSTRING:
++      code_name = "BITSTRING"; break;
++    case TYPE_CODE_ERROR:
++      code_name = "ERROR"; break;
++    case TYPE_CODE_MEMBERPTR:
++      code_name = "MEMBERPTR"; break;
++    case TYPE_CODE_METHODPTR:
++      code_name = "METHODPTR"; break;
++    case TYPE_CODE_METHOD:
++      code_name = "METHOD"; break;
++    case TYPE_CODE_REF:
++      code_name = "REF"; break;
++    case TYPE_CODE_CHAR:
++      code_name = "CHAR"; break;
++    case TYPE_CODE_BOOL:
++      code_name = "BOOL"; break;
++    case TYPE_CODE_COMPLEX:
++      code_name = "COMPLEX"; break;
++    case TYPE_CODE_TYPEDEF:
++      code_name = "TYPEDEF"; break;
++    case TYPE_CODE_NAMESPACE:
++      code_name = "NAMESPACE"; break;
++    default:
++      code_name = "(uhknown)"; break;
++    }
++
++  ui_out_field_string(uiout, "code", code_name);
++  if (TYPE_TARGET_TYPE (type))
++    {
++      ui_out_field_string(uiout, "target",
++                          type_to_string (TYPE_TARGET_TYPE (type)));
++    }
++  if (TYPE_REFERENCE_TYPE (type))
++    {
++      ui_out_field_string(uiout, "reference",
++                          type_to_string (TYPE_REFERENCE_TYPE (type)));
++    }
++
++  if (TYPE_NFIELDS (type) > 0)
++    {
++      struct cleanup *cleanup_ui_list;
++      int i;
++      /* fields of a struct */
++      cleanup_ui_list = make_cleanup_ui_out_list_begin_end (uiout, "fields");
++      for (i = 0; i < TYPE_NFIELDS (type); i++)
++        {
++          struct cleanup *cleanup_ui_tuple;
++
++          cleanup_ui_tuple = make_cleanup_ui_out_tuple_begin_end (uiout, NULL);
++
++          ui_out_field_int(uiout, "index", i);
++          ui_out_field_int(uiout, "bitpos", TYPE_FIELD_BITPOS (type, i));
++          ui_out_field_int(uiout, "bitsize", TYPE_FIELD_BITSIZE (type, i));
++
++          if (TYPE_FIELD_NAME (type, i))
++            {
++              ui_out_field_string(uiout, "name", TYPE_FIELD_NAME (type, i));
++            }
++          if (TYPE_FIELD_TYPE (type, i))
++            {
++              /* do not recurse */
++              ui_out_field_string(uiout, "type",
++                                  type_to_string (TYPE_FIELD_TYPE (type, i)));
++            }
++          do_cleanups (cleanup_ui_tuple);
++        }
++      do_cleanups (cleanup_ui_list);
++    }
++}
++
++void
++mi_cmd_symbol_info_type (char *command, char **argv, int argc)
++{
++  static const struct mi_opt opts[] =
++  {
++    { 0, 0, 0 }
++  };
++  static const char prefix[] = "-symbol-info-type";
++  char *optarg;
++  int optind = 0;
++
++  char *typename;
++  struct expression *expr;
++  struct cleanup *cleanup;
++  struct ui_out *uiout = current_uiout;
++
++  if( (mi_getopt (prefix, argc, argv, opts, &optind, &optarg) != -1)
++      || (optind != (argc - 1)) )
++    {
++      error (_("-symbol-info-type: Usage: TYPENAME"));
++    }
++
++  typename = argv[optind];
++  expr = parse_expression (typename);
++  cleanup = make_cleanup (free_current_contents, &expr);
++  if (expr->elts[0].opcode == OP_TYPE)
++    {
++       print_type(uiout, expr->elts[1].type);
++    }
++  else
++    {
++      struct type *type = value_type(evaluate_type(expr));
++
++      if (type)
++        {
++          print_type(uiout, type);
++        }
++      else
++        {
++          error (_("-symbol-info-type: expected a type name"));
++        }
++    }
++  do_cleanups (cleanup);
++}
