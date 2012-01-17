@@ -1,4 +1,9 @@
 #!/usr/bin/python
+PARSERS = []
+
+def _parser_(cls):
+    PARSERS.append(cls)
+    return cls
 
 class _Output(object):
     TOKEN = None # should be overridden
@@ -23,8 +28,8 @@ class _Output(object):
                 raise ValueError(src)
 
     def __repr__(self):
-        return "<< %s [%s]: %s>>" % (self.__class__.__name__[8:],
-                                  self.what, self.args)
+        return "<< GDB/MI:%s [%s]: %s>>" % (self.__class__.__name__,
+                                            self.what, self.args)
 
     @classmethod
     def parse_tuple(self, src):
@@ -125,6 +130,7 @@ class _Output(object):
         value, left = self.parse_value(value_str)
         return ((variable, value), left)
 
+@_parser_
 class Result(_Output):
     TOKEN = '^'
     CANDS = ("done",
@@ -137,29 +143,38 @@ class Result(_Output):
 class _OOB(_Output):
     TOKEN = None
 
+@_parser_
 class ExecAsync(_OOB):
     TOKEN = "*"
 
+@_parser_
 class StatusAsync(_OOB):
     TOKEN = "+"
 
+@_parser_
 class NotifyAsync(_OOB):
     TOKEN = "="
 
 class _Stream(_OOB):
     pass
 
+@_parser_
 class ConsoleStream(_Stream):
     TOKEN = "~"
-
+@_parser_
 class TargetStream(_Stream):
     TOKEN = "@"
 
+@_parser_
 class LogStream(_Stream):
     TOKEN = "&"
 
+@_parser_
 class Terminator(_Output):
     is_terminator = True
     def __init__(self): pass
     def __repr__(self): return "<<Term>>"
 
+    
+if __name__ == "__main__":
+    print PARSERS

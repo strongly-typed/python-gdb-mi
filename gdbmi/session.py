@@ -9,16 +9,22 @@ import select
 import gdbmi
 
 class Session(object):
-    def __init__(self, debugee, gdb="gdb"):
+    def __init__(self, debuggee, gdb="gdb"):
         """
         >>> p = Session("test/hello")
         """
-        self.debugee = debugee
+        self.debuggee = debuggee
 
         p = subprocess.Popen(
             bufsize = 0,
-            args = [gdb, '--quiet', '--nw', '--nx', '--interpreter=mi2',
-                    self.debugee],
+            args = [gdb,
+                    '--return-child-result',
+                    '--quiet', # inhibit dumping info at start-up
+                    '--nx', # inhibit window interface
+                    '--nw', # ignore .gdbinit
+                    '--interpreter=mi2', # use GDB/MI v2
+                    #'--write', # to-do: allow to modify executable/cores? 
+                    self.debuggee],
             stdin = subprocess.PIPE, stdout = subprocess.PIPE,
             close_fds = True
             )
@@ -38,14 +44,19 @@ class Session(object):
 
         self.exec_state = None
         self.token = 0
-        logging.warn(['session', debugee])
+        logging.warn(['session', debuggee])
 
-    def hijack_function(self, name, func):
+
+    def dump_obj(self, token, obj):
+        logging.error(['##### DUMP:', token, obj])
+
+    def hijack_function(self, name, replacement):
         def thunk(token, obj):
-            func()
-            
-
-        self.insert_break(name, )
+            replacement(obj)
+        def register_replacement(token, obj):
+            self.dump_obj(token, obj)
+        
+        return self.break_insert(name, register_replacement)
 
     def start(self, token = ""):
         if self.is_attached:
@@ -54,11 +65,18 @@ class Session(object):
         self.send("-break-insert main")
         return self
 
-    def insert_break(self, location):
-        return self.send("-break-insert " + location)
+    def break_insert(self, location, handler = None):
+        return self.send("-break-insert " + location,
+                         handler)
 
-    def exec_run(self):
-        return self.send("-exec-run")
+    def exec_continue(self, handler = None):
+        return self.send("-exec-continue", handler)
+    def exec_run(self, handler = None):
+        return self.send("-exec-run", handler)
+    def exec_return(self, value = None, handler = None):
+        if value is None:
+            return self.send("-exec-return", handler)
+        return self.send("-exec-return " + str(value), handler)
 
     def send(self, cmd, handler = None):
         self.token += 1
@@ -96,14 +114,7 @@ class Session(object):
         while line[0] in "0123456789":
             token = token + line[0]
             line = line[1:]
-        for klass in (gdbmi.output.Result,
-                      gdbmi.output.ExecAsync,
-                      gdbmi.output.StatusAsync,
-                      gdbmi.output.NotifyAsync,
-                      gdbmi.output.ConsoleStream,
-                      gdbmi.output.TargetStream,
-                      gdbmi.output.LogStream,
-                      ):
+        for klass in gdbmi.output.PARSERS:
             if line.startswith(klass.TOKEN):
                 yield (token, klass(line))
                 return

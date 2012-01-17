@@ -10,6 +10,9 @@ struct timeval tv;
 
 int main(){
     static int int_l = 3;
-    printf("g%d, s%d, l%d\n", int_g, int_s, int_l);
+    __attribute__((__section__(".bss"))) static int alt_sect;
+    printf("g%d, s%d, l%d %x\n", int_g, int_s, int_l, alt_sect);
+    alt_sect = 0x1234;
+    printf("g%d, s%d, l%d %x\n", int_g, int_s, int_l, alt_sect);
     return 0;
 }
