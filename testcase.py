@@ -16,7 +16,7 @@ def test_lib(path):
             '%(pathname)s:%(lineno)s '\
             '%(message)s')
 
-    p = gdbmi.Session(path)
+    p = gdbmi.Session(path, gdb="/home/minami/gdb/gdb/gdb")
 
     def dump(token, obj):
         for d in obj.args['symbols']:
@@ -25,7 +25,7 @@ def test_lib(path):
                 logging.warn([d])
         return True
     token = p.send("-symbol-list-variables", dump)
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
 
 def test_cpp(path):
@@ -45,7 +45,7 @@ def test_cpp(path):
 
     token = p.send("-enable-timings")
     token = p.send("-list-features")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     def dump(token, obj):
         for d in obj.args['symbols']:
@@ -53,34 +53,34 @@ def test_cpp(path):
                 logging.warn([d])
         return True
     token = p.send("-symbol-list-variables", dump)
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token, pty = p.inferior_tty_set()
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
 
     token = p.send("-exec-run")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-symbol-list-lines hello.c")
     token = p.send("-data-list-changed-registers")
     token = p.send("-data-list-register-names")
     token = p.send("-data-list-register-values x 0")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-data-evaluate-expression main")
     token = p.send("-data-read-memory main x 8 1 1")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-stack-list-variables --all-values")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
 
     token = p.send("-exec-continue")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-exec-continue")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
 def test(path):
     """
@@ -98,16 +98,12 @@ def test(path):
 
     p = gdbmi.Session(path).start()
 
-#    pid = os.getpid()
-#    (master, slave) = os.openpty()
-#    slave_node = "/proc/%d/fd/%d" % (pid, slave)
-
-#    token = p.send("-inferior-tty-set " + slave_node)
-#    while not p.block(token): pass
+    token, pty = p.inferior_tty_set()
+    while not p.wait_for(token): pass
 
     token = p.send("-enable-timings")
     token = p.send("-list-features")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
 
     def dump(token, obj):
@@ -119,33 +115,33 @@ def test(path):
 
     token = p.send("-symbol-list-variables", dump)
 #    token = p.send("-symbol-list-variables")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-exec-run")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-rubbish")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-list-thread-groups")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-symbol-list-lines hello.c")
     token = p.send("-data-list-changed-registers")
     token = p.send("-data-list-register-names")
     token = p.send("-data-list-register-values x 0")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-data-evaluate-expression main")
     token = p.send("-data-read-memory main x 8 1 1")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-data-read-memory-bytes &test_i1 4")
     token = p.send('-data-write-memory-bytes &test_i1 "09080706"')
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-stack-list-variables --all-values")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
 
 
@@ -153,13 +149,13 @@ def test(path):
     token = p.send('-var-create var2 * test_i2')
     token = p.send("-var-assign var2 3")
     token = p.send("-var-update *")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-exec-continue")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
     token = p.send("-exec-continue")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
 def test_vars(path):
     """
@@ -181,7 +177,7 @@ def test_vars(path):
         return True
     token = p.send("-symbol-list-variables", dump)
 #    token = p.send("-symbol-list-variables")
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
 def test_simple(path):
     """
@@ -201,7 +197,7 @@ def test_simple(path):
             logging.warn([d])
         return True
     token = p.send("-symbol-list-variables", dump)
-    while not p.block(token): pass
+    while not p.wait_for(token): pass
 
 if __name__ == "__main__":
     import doctest

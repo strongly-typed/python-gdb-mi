@@ -44,7 +44,7 @@ class Session(object):
 
         self.exec_state = None
         self.token = 0
-        logging.warn(['session', debuggee])
+        logging.warn(['session', debuggee, 'gdb', gdb])
 
 
     def dump_obj(self, token, obj):
@@ -110,7 +110,7 @@ class Session(object):
             # terminator
             yield (token, gdbmi.output.Terminator())
             return
-
+        logging.error(line)
         while line[0] in "0123456789":
             token = token + line[0]
             line = line[1:]

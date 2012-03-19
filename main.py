@@ -14,7 +14,8 @@ def main():
             '%(pathname)s:%(lineno)s '\
             '%(message)s')
 
-    s = gdbmi.Session("test/loop")
+    s = gdbmi.Session(debuggee = "test/loop",
+                      gdb = "/home/minami/gdb/gdb/gdb")
 
     token = s.hijack_function('poll', None)
     while not s.wait_for(token): pass
