@@ -122,6 +122,7 @@ class Session(object):
             line = line[1:]
         for klass in gdbmi.output.PARSERS:
             if line.startswith(klass.TOKEN):
+                line = line.replace('debug-request, current', 'debug-request. current')
                 yield (token, klass(line))
                 return
 
