@@ -44,7 +44,7 @@ class Session(object):
 
         self.exec_state = None
         self.token = 0
-        logging.warn(['session', debuggee, 'gdb', gdb])
+        logging.debug(['session', debuggee, 'gdb', gdb])
 
 
     def dump_obj(self, token, obj):
@@ -84,7 +84,7 @@ class Session(object):
         p = self.process
         p.stdin.write(token + cmd + "\n")
         p.stdin.flush()
-        logging.warn(["SENT[" + token +"]:", cmd])
+        logging.debug(["SENT[" + token +"]:", cmd])
         self.commands[token] = {'cmd': cmd,
                                 'handler': handler,
                                 }
@@ -110,7 +110,7 @@ class Session(object):
             # terminator
             yield (token, gdbmi.output.Terminator())
             return
-        logging.error(line)
+        logging.debug(line)
         while line[0] in "0123456789":
             token = token + line[0]
             line = line[1:]
@@ -119,7 +119,7 @@ class Session(object):
                 yield (token, klass(line))
                 return
 
-        logging.warn([line])
+        logging.debug([line])
         #raise ValueError((token, line))
 
     def _handle_exec(self, token, obj):
@@ -142,25 +142,25 @@ class Session(object):
     def _handle_notify(self, token, obj):
         if obj.what == "thread-group-added":
             tg = self._add_thread_group(obj.args)
-            logging.info(tg)
+            logging.debug(tg)
             return True
 
         if obj.what == "thread-group-started":
             tg = self.thread_groups[obj.args['id']]
             tg['pid'] = obj.args['pid']
-            logging.info(tg)
+            logging.debug(tg)
             return True
 
         if obj.what == "thread-created":
             tg = self.thread_groups[obj.args['group-id']]
             tg['threads'].add(obj.args['id'])
-            logging.info(tg)
+            logging.debug(tg)
             return True
 
         if obj.what == "library-loaded":
             tg = self.thread_groups[obj.args['thread-group']]
             tg['dl'][obj.args['id']] = obj.args
-            logging.info(tg)
+            logging.debug(tg)
             return True
 
         if obj.what == "breakpoint-modified":
@@ -177,7 +177,7 @@ class Session(object):
             "dl": {},
             }
         self.thread_groups[group_id] = tg
-        logging.info(tg)
+        logging.debug(tg)
 
     def add_callback(self, target, proc, filter = None, *kwds):
         to_add = {
@@ -203,7 +203,7 @@ class Session(object):
         else:
             self.breakpoints[number] = dict(info)
 
-        logging.info(['updated BREAKPOINT', self.breakpoints[number]])
+        logging.debug(['updated BREAKPOINT', self.breakpoints[number]])
         self._callback('bkpt')
 
     def _handle(self, token, obj):
@@ -216,7 +216,7 @@ class Session(object):
             }.get(obj.TOKEN, None)
 
         if not (handler and handler(token, obj)):
-            logging.warn(["IGN:", token, obj])
+            logging.debug(["IGN:", token, obj])
 
     def read(self, blocking = 0):
         for src in self._read(blocking):            
