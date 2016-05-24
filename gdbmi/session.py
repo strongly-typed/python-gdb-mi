@@ -69,6 +69,12 @@ class Session(object):
         return self.send("-break-insert " + location,
                          handler)
 
+    def target_select_remote(self, handler = None):
+        return self.send("-target-select remote :3333")
+    def monitor_reset_halt(self, handler = None):
+        return self.send('-interpreter-exec console "monitor reset halt"')
+    def exec_advance(self, target, handler = None):
+        return self.send('-interpreter-exec console "advance %s"' % target)
     def exec_continue(self, handler = None):
         return self.send("-exec-continue", handler)
     def exec_run(self, handler = None):
