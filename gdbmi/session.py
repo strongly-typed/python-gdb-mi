@@ -130,7 +130,7 @@ class Session(object):
         #raise ValueError((token, line))
 
     def _handle_exec(self, token, obj):
-        if obj.what == "stopped":
+        if obj.what in ("stopped", "running"):
             self.exec_state = obj.what
         
     def _handle_result(self, token, obj):
