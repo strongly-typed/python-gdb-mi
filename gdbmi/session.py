@@ -6,7 +6,7 @@ import os
 import logging
 import select
 
-import gdbmi
+import output
 
 class Session(object):
     def __init__(self, debuggee, gdb="gdb"):
@@ -114,13 +114,13 @@ class Session(object):
 
         if line.startswith('(gdb)'):
             # terminator
-            yield (token, gdbmi.output.Terminator())
+            yield (token, output.Terminator())
             return
         logging.debug(line)
         while line[0] in "0123456789":
             token = token + line[0]
             line = line[1:]
-        for klass in gdbmi.output.PARSERS:
+        for klass in output.PARSERS:
             if line.startswith(klass.TOKEN):
                 line = line.replace('debug-request, current', 'debug-request. current')
                 yield (token, klass(line))
@@ -215,11 +215,11 @@ class Session(object):
 
     def _handle(self, token, obj):
         handler = {
-            gdbmi.output.NotifyAsync.TOKEN   : self._handle_notify,
-            gdbmi.output.ExecAsync.TOKEN     : self._handle_exec,
-            gdbmi.output.Result.TOKEN        : self._handle_result,
-            gdbmi.output.ConsoleStream.TOKEN : (lambda t,o:True),
-            gdbmi.output.Terminator.TOKEN    : (lambda t,o:True),
+            output.NotifyAsync.TOKEN   : self._handle_notify,
+            output.ExecAsync.TOKEN     : self._handle_exec,
+            output.Result.TOKEN        : self._handle_result,
+            output.ConsoleStream.TOKEN : (lambda t,o:True),
+            output.Terminator.TOKEN    : (lambda t,o:True),
             }.get(obj.TOKEN, None)
 
         if not (handler and handler(token, obj)):
