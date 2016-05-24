@@ -8,7 +8,12 @@ def _parser_(cls):
 class _Output(object):
     TOKEN = None # should be overridden
     is_terminator = False
+    no_parse = False
     def __init__(self, src):
+        if self.no_parse:
+            self.what = src
+            self.args = {}
+            return
         if src[0] != self.TOKEN:
             raise ValueError(src)
         src = src[1:]
@@ -161,6 +166,8 @@ class _Stream(_OOB):
 @_parser_
 class ConsoleStream(_Stream):
     TOKEN = "~"
+    no_parse = True
+
 @_parser_
 class TargetStream(_Stream):
     TOKEN = "@"
